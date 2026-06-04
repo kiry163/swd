@@ -15,15 +15,7 @@ type Engine struct {
 	m       *matcher
 }
 
-func New(opts ...Option) *Engine {
-	cfg := defaultConfig()
-	for _, opt := range opts {
-		opt(&cfg)
-	}
-	return NewWithOptions(cfg)
-}
-
-func NewWithOptions(options Options) *Engine {
+func New(options Options) *Engine {
 	cfg := defaultConfig()
 	cfg.IgnoreSymbol = options.IgnoreSymbol
 	cfg.IgnoreWidth = options.IgnoreWidth

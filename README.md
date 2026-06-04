@@ -21,7 +21,7 @@ import (
 )
 
 func main() {
-	eng := swd.NewWithOptions(swd.Options{
+	eng := swd.New(swd.Options{
 		IgnoreSymbol: true,
 		IgnoreCase:   true,
 	})
@@ -46,15 +46,13 @@ func main() {
 
 ## 归一化选项
 
-`WithTraditional(true)` 会使用 OpenCC 的 `t2s` 规则把词库和输入文本统一归一到简体后再匹配。这个选项只处理繁体到简体转换，不包含台湾、香港等地区词汇转换；例如 `軟體` 会归一为 `软体`，不会归一为 `软件`。
+`Options.Traditional` 会使用 OpenCC 的 `t2s` 规则把词库和输入文本统一归一到简体后再匹配。这个选项只处理繁体到简体转换，不包含台湾、香港等地区词汇转换；例如 `軟體` 会归一为 `软体`，不会归一为 `软件`。
 
-`WithIgnoreWidth(true)` 会使用 Unicode width folding 归一化宽窄字符，例如全角 ASCII、全角空格和半角片假名。词库里的 `ガス` 可以匹配输入文本中的 `ｶﾞｽ`，命中结果仍返回原文位置。
+`Options.IgnoreWidth` 会使用 Unicode width folding 归一化宽窄字符，例如全角 ASCII、全角空格和半角片假名。词库里的 `ガス` 可以匹配输入文本中的 `ｶﾞｽ`，命中结果仍返回原文位置。
 
-`WithIgnoreSymbol(true)` 会忽略空白、标点、符号、控制字符和零宽格式字符，适合处理 `敏​感‍词` 这类插入干扰字符的文本。
+`Options.IgnoreSymbol` 会忽略空白、标点、符号、控制字符和零宽格式字符，适合处理 `敏​感‍词` 这类插入干扰字符的文本。
 
-`WithSimilarChar(true)` 只做低误报的常见字符混淆归一化，例如 `b@d` 匹配 `bad`、`t3st` 匹配 `test`。库不提供拼音和同音字匹配，以避免不可控的误报。
-
-如果更偏好函数式配置，也可以继续使用 `New(WithIgnoreSymbol(true), WithIgnoreCase(true))`。
+`Options.SimilarChar` 只做低误报的常见字符混淆归一化，例如 `b@d` 匹配 `bad`、`t3st` 匹配 `test`。库不提供拼音和同音字匹配，以避免不可控的误报。
 
 `words.txt` 支持一行一个词，也支持 `词,类型`：
 

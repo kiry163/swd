@@ -7,7 +7,7 @@ import (
 )
 
 func main() {
-	eng := swd.NewWithOptions(swd.Options{
+	eng := swd.New(swd.Options{
 		IgnoreSymbol: true,
 		IgnoreCase:   true,
 	})

@@ -15,7 +15,7 @@ func BenchmarkLoadMemory(b *testing.B) {
 		b.Run(fmt.Sprintf("words_%d", size), func(b *testing.B) {
 			b.ReportAllocs()
 			for i := 0; i < b.N; i++ {
-				eng := New()
+				eng := New(Options{})
 				if err := eng.Load(context.Background(), NewMemoryLoader(words)); err != nil {
 					b.Fatal(err)
 				}
@@ -73,7 +73,7 @@ func BenchmarkAddWordRuntimeUpdate(b *testing.B) {
 		b.Run(fmt.Sprintf("base_words_%d", size), func(b *testing.B) {
 			b.ReportAllocs()
 			for i := 0; i < b.N; i++ {
-				eng := New()
+				eng := New(Options{})
 				if err := eng.Load(context.Background(), NewMemoryLoader(words)); err != nil {
 					b.Fatal(err)
 				}
@@ -88,7 +88,7 @@ func BenchmarkAddWordRuntimeUpdate(b *testing.B) {
 
 func benchmarkEngine(b *testing.B, size int) *Engine {
 	b.Helper()
-	eng := New()
+	eng := New(Options{})
 	if err := eng.Load(context.Background(), NewMemoryLoader(benchmarkWords(size))); err != nil {
 		b.Fatal(err)
 	}

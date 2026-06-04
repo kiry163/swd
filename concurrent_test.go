@@ -8,7 +8,7 @@ import (
 )
 
 func TestEngine_ConcurrentReadAndWrite(t *testing.T) {
-	eng := New()
+	eng := New(Options{})
 	if err := eng.AddWords([]Word{
 		{Text: "基础词", Type: "base"},
 		{Text: "保留词", Type: "base"},
