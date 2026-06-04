@@ -1,16 +1,18 @@
 package engine
 
 import (
-	"bufio"
+	"context"
 	"fmt"
-	"os"
 	"strings"
+	"sync"
 )
 
 type Engine struct {
-	cfg   Config
-	words []Word
-	m     *matcher
+	writeMu sync.Mutex
+	mu      sync.RWMutex
+	cfg     Config
+	words   []Word
+	m       *matcher
 }
 
 func New(opts ...Option) *Engine {
@@ -22,61 +24,80 @@ func New(opts ...Option) *Engine {
 }
 
 func (e *Engine) AddWord(w Word) error {
-	if strings.TrimSpace(w.Text) == "" {
-		return fmt.Errorf("word text is empty")
-	}
-	e.words = append(e.words, w)
-	return nil
+	return e.AddWords([]Word{w})
 }
 
 func (e *Engine) AddWords(words []Word) error {
-	for _, w := range words {
-		if err := e.AddWord(w); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (e *Engine) AddFile(path string) error {
-	f, err := os.Open(path)
-	if err != nil {
+	if err := validateWords(words); err != nil {
 		return err
 	}
-	defer f.Close()
+	e.writeMu.Lock()
+	defer e.writeMu.Unlock()
 
-	s := bufio.NewScanner(f)
-	for s.Scan() {
-		line := strings.TrimSpace(s.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
+	e.mu.RLock()
+	next := appendOrOverrideWords(e.words, words)
+	e.mu.RUnlock()
+	return e.replaceWords(next)
+}
+
+func (e *Engine) Load(ctx context.Context, loaders ...Loader) error {
+	loaded := make([]Word, 0)
+	for _, loader := range loaders {
+		if loader == nil {
+			return fmt.Errorf("loader is nil")
+		}
+		words, err := loader.Load(ctx)
+		if err != nil {
+			return err
+		}
+		loaded = append(loaded, words...)
+	}
+	return e.AddWords(loaded)
+}
+
+func (e *Engine) RemoveWord(text string) error {
+	return e.RemoveWords([]string{text})
+}
+
+func (e *Engine) RemoveWords(texts []string) error {
+	remove := make(map[string]struct{}, len(texts))
+	for _, text := range texts {
+		text = strings.TrimSpace(text)
+		if text == "" {
+			return fmt.Errorf("word text is empty")
+		}
+		remove[text] = struct{}{}
+	}
+
+	e.writeMu.Lock()
+	defer e.writeMu.Unlock()
+
+	e.mu.RLock()
+	next := make([]Word, 0, len(e.words))
+	for _, w := range e.words {
+		if _, ok := remove[w.Text]; ok {
 			continue
 		}
-		parts := strings.SplitN(line, ",", 2)
-		w := Word{Text: strings.TrimSpace(parts[0])}
-		if len(parts) > 1 {
-			w.Type = strings.TrimSpace(parts[1])
-		}
-		if err := e.AddWord(w); err != nil {
-			return err
-		}
+		next = append(next, w)
 	}
-	return s.Err()
+	e.mu.RUnlock()
+	return e.replaceWords(next)
 }
 
-func (e *Engine) Build() error {
-	m, err := newMatcher(e.cfg, e.words)
-	if err != nil {
-		return err
-	}
-	e.m = m
-	return nil
+func (e *Engine) Clear() error {
+	e.writeMu.Lock()
+	defer e.writeMu.Unlock()
+	return e.replaceWords(nil)
 }
 
 func (e *Engine) FindAll(text string) []Match {
-	if e.m == nil {
+	e.mu.RLock()
+	m := e.m
+	e.mu.RUnlock()
+	if m == nil {
 		return nil
 	}
-	return e.m.findAll(text)
+	return m.findAll(text)
 }
 
 func (e *Engine) Find(text string) *Match {
@@ -88,12 +109,64 @@ func (e *Engine) Find(text string) *Match {
 }
 
 func (e *Engine) Contains(text string) bool {
-	return len(e.FindAll(text)) > 0
+	e.mu.RLock()
+	m := e.m
+	e.mu.RUnlock()
+	if m == nil {
+		return false
+	}
+	return m.contains(text)
 }
 
 func (e *Engine) Replace(text, mask string) string {
-	if e.m == nil || mask == "" {
+	e.mu.RLock()
+	m := e.m
+	e.mu.RUnlock()
+	if m == nil || mask == "" {
 		return text
 	}
-	return e.m.replace(text, mask)
+	return m.replace(text, mask)
+}
+
+func (e *Engine) replaceWords(words []Word) error {
+	if err := validateWords(words); err != nil {
+		return err
+	}
+	next := append([]Word(nil), words...)
+	m, err := newMatcher(e.cfg, next)
+	if err != nil {
+		return err
+	}
+
+	e.mu.Lock()
+	e.words = next
+	e.m = m
+	e.mu.Unlock()
+	return nil
+}
+
+func validateWords(words []Word) error {
+	for _, w := range words {
+		if strings.TrimSpace(w.Text) == "" {
+			return fmt.Errorf("word text is empty")
+		}
+	}
+	return nil
+}
+
+func appendOrOverrideWords(base, updates []Word) []Word {
+	next := append([]Word(nil), base...)
+	index := make(map[string]int, len(next)+len(updates))
+	for i, w := range next {
+		index[w.Text] = i
+	}
+	for _, w := range updates {
+		if i, ok := index[w.Text]; ok {
+			next[i] = w
+			continue
+		}
+		index[w.Text] = len(next)
+		next = append(next, w)
+	}
+	return next
 }

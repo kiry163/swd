@@ -26,53 +26,60 @@ func normalizeText(text string, cfg Config) string {
 }
 
 func normalizeWithMap(text string, cfg Config) (string, []int) {
+	n := newNormalizer(cfg)
+	out := n.normalize(text)
+	return out.text, out.mapping
+}
+
+type normalizedText struct {
+	text    string
+	mapping []int
+}
+
+type normalizer struct {
+	cfg Config
+}
+
+func newNormalizer(cfg Config) normalizer {
+	return normalizer{cfg: cfg}
+}
+
+func (n normalizer) normalize(text string) normalizedText {
 	var b strings.Builder
 	mapping := make([]int, 0, len(text))
 	runes := []rune(text)
 	for i, r := range runes {
-		r = normalizeRune(r, cfg)
+		r = n.normalizeRune(r)
 		if r == 0 {
 			continue
 		}
-		if cfg.IgnoreSymbol && isSymbolRune(r) {
+		if n.cfg.IgnoreSymbol && isSymbolRune(r) {
 			continue
 		}
-		if cfg.Pinyin {
+		if n.cfg.Pinyin {
 			if py, ok := pinyinMap[r]; ok {
-				for _, pr := range py {
-					var buf [utf8.UTFMax]byte
-					n := utf8.EncodeRune(buf[:], pr)
-					b.Write(buf[:n])
-					for j := 0; j < n; j++ {
-						mapping = append(mapping, i)
-					}
-				}
+				appendMappedString(&b, &mapping, py, i)
 				continue
 			}
 		}
-		var buf [utf8.UTFMax]byte
-		n := utf8.EncodeRune(buf[:], r)
-		b.Write(buf[:n])
-		for j := 0; j < n; j++ {
-			mapping = append(mapping, i)
-		}
+		appendMappedRune(&b, &mapping, r, i)
 	}
-	return b.String(), mapping
+	return normalizedText{text: b.String(), mapping: mapping}
 }
 
-func normalizeRune(r rune, cfg Config) rune {
-	if cfg.IgnoreCase {
+func (n normalizer) normalizeRune(r rune) rune {
+	if n.cfg.IgnoreCase {
 		r = unicode.ToLower(r)
 	}
-	if cfg.IgnoreWidth {
+	if n.cfg.IgnoreWidth {
 		r = toHalfWidth(r)
 	}
-	if cfg.Traditional {
+	if n.cfg.Traditional {
 		if v, ok := traditionalMap[r]; ok {
 			r = v
 		}
 	}
-	if cfg.SimilarChar || cfg.Homophone {
+	if n.cfg.SimilarChar || n.cfg.Homophone {
 		if v, ok := similarMap[r]; ok {
 			if v == 0 {
 				return 0
@@ -81,6 +88,25 @@ func normalizeRune(r rune, cfg Config) rune {
 		}
 	}
 	return r
+}
+
+func normalizeRune(r rune, cfg Config) rune {
+	return newNormalizer(cfg).normalizeRune(r)
+}
+
+func appendMappedString(b *strings.Builder, mapping *[]int, text string, runeIndex int) {
+	for _, r := range text {
+		appendMappedRune(b, mapping, r, runeIndex)
+	}
+}
+
+func appendMappedRune(b *strings.Builder, mapping *[]int, r rune, runeIndex int) {
+	var buf [utf8.UTFMax]byte
+	n := utf8.EncodeRune(buf[:], r)
+	b.Write(buf[:n])
+	for j := 0; j < n; j++ {
+		*mapping = append(*mapping, runeIndex)
+	}
 }
 
 func toHalfWidth(r rune) rune {

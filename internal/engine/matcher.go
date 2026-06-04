@@ -1,6 +1,8 @@
 package engine
 
 import (
+	"sort"
+
 	ahocorasick "github.com/pgavlin/aho-corasick"
 )
 
@@ -10,16 +12,18 @@ type pattern struct {
 }
 
 type matcher struct {
-	cfg      Config
-	patterns []pattern
-	ac       ahocorasick.AhoCorasick
+	cfg        Config
+	normalizer normalizer
+	patterns   []pattern
+	ac         ahocorasick.AhoCorasick
 }
 
 func newMatcher(cfg Config, words []Word) (*matcher, error) {
+	normalizer := newNormalizer(cfg)
 	patterns := make([]pattern, 0, len(words))
 	keys := make([]string, 0, len(words))
 	for _, w := range words {
-		k := normalizeText(w.Text, cfg)
+		k := normalizer.normalize(w.Text).text
 		if k == "" {
 			continue
 		}
@@ -28,19 +32,19 @@ func newMatcher(cfg Config, words []Word) (*matcher, error) {
 	}
 	builder := ahocorasick.NewAhoCorasickBuilder(ahocorasick.Opts{
 		AsciiCaseInsensitive: false,
-		MatchKind:            ahocorasick.StandardMatch,
+		MatchKind:            ahocorasick.LeftMostLongestMatch,
 		DFA:                  true,
 	})
 	ac := builder.Build(keys)
-	return &matcher{cfg: cfg, patterns: patterns, ac: ac}, nil
+	return &matcher{cfg: cfg, normalizer: normalizer, patterns: patterns, ac: ac}, nil
 }
 
 func (m *matcher) findAll(text string) []Match {
-	norm, mapping := normalizeWithMap(text, m.cfg)
-	if norm == "" {
+	normalized := m.normalizer.normalize(text)
+	if normalized.text == "" {
 		return nil
 	}
-	matches := m.ac.FindAll(norm)
+	matches := m.ac.FindAll(normalized.text)
 	if len(matches) == 0 {
 		return nil
 	}
@@ -52,20 +56,28 @@ func (m *matcher) findAll(text string) []Match {
 		p := m.patterns[mt.Pattern()]
 		startB := mt.Start()
 		endB := mt.End()
-		if startB < 0 || endB <= 0 || startB >= len(mapping) {
+		if startB < 0 || endB <= 0 || startB >= len(normalized.mapping) {
 			continue
 		}
-		if endB-1 >= len(mapping) {
-			endB = len(mapping)
+		if endB-1 >= len(normalized.mapping) {
+			endB = len(normalized.mapping)
 		}
-		startPos := mapping[startB]
-		endPos := mapping[endB-1] + 1
+		startPos := normalized.mapping[startB]
+		endPos := normalized.mapping[endB-1] + 1
 		if startPos < 0 || endPos <= startPos {
 			continue
 		}
 		out = append(out, Match{Word: p.word.Text, Type: p.word.Type, Text: runeSlice(text, startPos, endPos), StartPos: startPos, EndPos: endPos})
 	}
-	return out
+	return selectNonOverlappingMatches(out)
+}
+
+func (m *matcher) contains(text string) bool {
+	normalized := m.normalizer.normalize(text)
+	if normalized.text == "" {
+		return false
+	}
+	return len(m.ac.FindAll(normalized.text)) > 0
 }
 
 func (m *matcher) replace(text, mask string) string {
@@ -95,4 +107,34 @@ func runeSlice(text string, start, end int) string {
 		return ""
 	}
 	return string(r[start:end])
+}
+
+func selectNonOverlappingMatches(matches []Match) []Match {
+	if len(matches) <= 1 {
+		return matches
+	}
+	sort.SliceStable(matches, func(i, j int) bool {
+		if matches[i].StartPos != matches[j].StartPos {
+			return matches[i].StartPos < matches[j].StartPos
+		}
+		iLen := matches[i].EndPos - matches[i].StartPos
+		jLen := matches[j].EndPos - matches[j].StartPos
+		if iLen != jLen {
+			return iLen > jLen
+		}
+		return matches[i].Word < matches[j].Word
+	})
+
+	selected := make([]Match, 0, len(matches))
+	coveredEnd := -1
+	for _, mt := range matches {
+		if mt.StartPos < coveredEnd {
+			continue
+		}
+		selected = append(selected, mt)
+		if mt.EndPos > coveredEnd {
+			coveredEnd = mt.EndPos
+		}
+	}
+	return selected
 }
