@@ -7,10 +7,10 @@ import (
 )
 
 func main() {
-	eng := swd.New(
-		swd.WithIgnoreSymbol(true),
-		swd.WithIgnoreCase(true),
-	)
+	eng := swd.NewWithOptions(swd.Options{
+		IgnoreSymbol: true,
+		IgnoreCase:   true,
+	})
 
 	err := eng.Load(
 		context.Background(),

@@ -9,14 +9,13 @@ import (
 )
 
 func TestEngine_FindAll_ReturnsRunePositions(t *testing.T) {
-	eng := New(
-		WithIgnoreSymbol(true),
-		WithIgnoreWidth(true),
-		WithIgnoreCase(true),
-		WithTraditional(true),
-		WithSimilarChar(true),
-		WithPinyin(true),
-	)
+	eng := NewWithOptions(Options{
+		IgnoreSymbol: true,
+		IgnoreWidth:  true,
+		IgnoreCase:   true,
+		Traditional:  true,
+		SimilarChar:  true,
+	})
 
 	if err := eng.AddWord(Word{Text: "测试", Type: "custom"}); err != nil {
 		t.Fatalf("AddWord() error = %v", err)
@@ -80,6 +79,18 @@ func TestEngine_Replace(t *testing.T) {
 	}
 }
 
+func TestEngine_Replace_UsesFullMaskForEachMatchedRune(t *testing.T) {
+	eng := New()
+	if err := eng.AddWords([]Word{{Text: "坏词", Type: "custom"}}); err != nil {
+		t.Fatalf("AddWords() error = %v", err)
+	}
+
+	got := eng.Replace("这是坏词", "[x]")
+	if got != "这是[x][x]" {
+		t.Fatalf("Replace() = %q, want %q", got, "这是[x][x]")
+	}
+}
+
 func TestEngine_FindAll_MultipleMatches(t *testing.T) {
 	eng := New(WithIgnoreSymbol(true))
 	if err := eng.AddWords([]Word{
@@ -137,10 +148,10 @@ func TestEngine_FindAll_FiltersOverlappingShortMatches(t *testing.T) {
 
 func TestEngine_AddWords_OverridesExistingWordByText(t *testing.T) {
 	eng := New()
-	if err := eng.AddWord(Word{Text: "重复", Type: "old", Meta: map[string]any{"version": 1}}); err != nil {
+	if err := eng.AddWord(Word{Text: "重复", Type: "old"}); err != nil {
 		t.Fatalf("AddWord(old) error = %v", err)
 	}
-	if err := eng.AddWord(Word{Text: "重复", Type: "new", Meta: map[string]any{"version": 2}}); err != nil {
+	if err := eng.AddWord(Word{Text: "重复", Type: "new"}); err != nil {
 		t.Fatalf("AddWord(new) error = %v", err)
 	}
 
@@ -164,6 +175,64 @@ func TestEngine_FindAll_TraditionalVariant(t *testing.T) {
 	}
 }
 
+func TestEngine_FindAll_TraditionalPhraseUsesOpenCC(t *testing.T) {
+	eng := New(WithTraditional(true))
+	if err := eng.AddWord(Word{Text: "软体", Type: "custom"}); err != nil {
+		t.Fatalf("AddWord() error = %v", err)
+	}
+
+	matches := eng.FindAll("這個軟體很好")
+	if len(matches) != 1 {
+		t.Fatalf("FindAll() len = %d, want 1: %#v", len(matches), matches)
+	}
+	if matches[0].Text != "軟體" || matches[0].StartPos != 2 || matches[0].EndPos != 4 {
+		t.Fatalf("Match = %#v, want text 軟體 at 2..4", matches[0])
+	}
+}
+
+func TestEngine_FindAll_IgnoreWidthMatchesHalfwidthKatakanaMarks(t *testing.T) {
+	eng := New(WithIgnoreWidth(true))
+	if err := eng.AddWord(Word{Text: "ガス", Type: "custom"}); err != nil {
+		t.Fatalf("AddWord() error = %v", err)
+	}
+
+	matches := eng.FindAll("これはｶﾞｽです")
+	if len(matches) != 1 {
+		t.Fatalf("FindAll() len = %d, want 1: %#v", len(matches), matches)
+	}
+	if matches[0].Text != "ｶﾞｽ" || matches[0].StartPos != 3 || matches[0].EndPos != 6 {
+		t.Fatalf("Match = %#v, want text ｶﾞｽ at 3..6", matches[0])
+	}
+}
+
+func TestEngine_Contains_IgnoreSymbolSkipsZeroWidthCharacters(t *testing.T) {
+	eng := New(WithIgnoreSymbol(true))
+	if err := eng.AddWord(Word{Text: "敏感词", Type: "custom"}); err != nil {
+		t.Fatalf("AddWord() error = %v", err)
+	}
+
+	if !eng.Contains("敏\u200b感\u200d词") {
+		t.Fatal("Contains() = false, want true")
+	}
+}
+
+func TestEngine_Contains_SimilarCharMatchesCommonLeetspeak(t *testing.T) {
+	eng := New(WithSimilarChar(true), WithIgnoreCase(true))
+	if err := eng.AddWords([]Word{
+		{Text: "bad", Type: "custom"},
+		{Text: "test", Type: "custom"},
+	}); err != nil {
+		t.Fatalf("AddWords() error = %v", err)
+	}
+
+	if !eng.Contains("b@d") {
+		t.Fatal("Contains(b@d) = false, want true")
+	}
+	if !eng.Contains("t3st") {
+		t.Fatal("Contains(t3st) = false, want true")
+	}
+}
+
 func TestEngine_Contains_UsesSameNormalizationAsFind(t *testing.T) {
 	eng := New(
 		WithIgnoreSymbol(true),
@@ -171,7 +240,6 @@ func TestEngine_Contains_UsesSameNormalizationAsFind(t *testing.T) {
 		WithIgnoreCase(true),
 		WithTraditional(true),
 		WithSimilarChar(true),
-		WithPinyin(true),
 	)
 	if err := eng.AddWord(Word{Text: "测试", Type: "custom"}); err != nil {
 		t.Fatalf("AddWord() error = %v", err)
