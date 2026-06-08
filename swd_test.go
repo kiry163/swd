@@ -234,6 +234,20 @@ func TestEngine_Contains_SimilarCharMatchesCommonLeetspeak(t *testing.T) {
 	}
 }
 
+func TestEngine_Contains_IgnoreSymbolTakesPrecedenceOverSimilarChar(t *testing.T) {
+	eng := New(Options{IgnoreSymbol: true, SimilarChar: true, IgnoreCase: true})
+	if err := eng.AddWord(Word{Text: "bad", Type: "custom"}); err != nil {
+		t.Fatalf("AddWord() error = %v", err)
+	}
+
+	if eng.Contains("b@d") {
+		t.Fatal("Contains(b@d) = true, want false because @ is ignored before similar-char mapping")
+	}
+	if !eng.Contains("b!a!d") {
+		t.Fatal("Contains(b!a!d) = false, want true")
+	}
+}
+
 func TestEngine_Contains_UsesSameNormalizationAsFind(t *testing.T) {
 	eng := New(Options{
 		IgnoreSymbol: true,
@@ -437,6 +451,33 @@ func TestEngine_ExportFile_WritesLoadableFile(t *testing.T) {
 	}
 }
 
+func TestEngine_ExportFile_ErrorKeepsExistingFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "words.txt")
+	original := []byte("existing,risk\n")
+	if err := os.WriteFile(path, original, 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	eng := New(Options{})
+	if err := eng.AddWord(Word{Text: "坏,词", Type: "risk"}); err != nil {
+		t.Fatalf("AddWord() error = %v", err)
+	}
+
+	err := eng.ExportFile(context.Background(), path)
+	if err == nil {
+		t.Fatal("ExportFile() error = nil, want error")
+	}
+
+	got, readErr := os.ReadFile(path)
+	if readErr != nil {
+		t.Fatalf("ReadFile() error = %v", readErr)
+	}
+	if !reflect.DeepEqual(got, original) {
+		t.Fatalf("file content = %q, want original %q", got, original)
+	}
+}
+
 func TestEngine_Export_ErrorsWhenWordCannotUseSimpleFormat(t *testing.T) {
 	eng := New(Options{})
 	if err := eng.AddWord(Word{Text: "坏,词", Type: "risk"}); err != nil {
@@ -484,5 +525,29 @@ func TestEngine_LoadError_KeepsExistingWords(t *testing.T) {
 	}
 	if eng.Contains("这里有新词") {
 		t.Fatal("Contains(new word) = true after failed Load, want false")
+	}
+}
+
+func TestStringLoader_CanBeLoadedMultipleTimes(t *testing.T) {
+	loader := NewStringLoader("诈骗,risk\n违规,policy\n")
+
+	first, err := loader.Load(context.Background())
+	if err != nil {
+		t.Fatalf("first Load() error = %v", err)
+	}
+	second, err := loader.Load(context.Background())
+	if err != nil {
+		t.Fatalf("second Load() error = %v", err)
+	}
+
+	want := []Word{
+		{Text: "诈骗", Type: "risk"},
+		{Text: "违规", Type: "policy"},
+	}
+	if !reflect.DeepEqual(first, want) {
+		t.Fatalf("first Load() = %#v, want %#v", first, want)
+	}
+	if !reflect.DeepEqual(second, want) {
+		t.Fatalf("second Load() = %#v, want %#v", second, want)
 	}
 }

@@ -72,15 +72,18 @@ func main() {
 err := eng.Load(
 	context.Background(),
 	swd.NewFileLoader("words.txt"),
-	swd.NewReaderLoader(strings.NewReader("违规,policy\n")),
+	swd.NewStringLoader("违规,policy\n"),
 	swd.NewMemoryLoader([]swd.Word{{Text: "敏感词", Type: "custom"}}),
 )
 ```
+
+`NewReaderLoader` 会直接消费传入的 `io.Reader`，适合一次性加载；如果同一份内存文本需要重复加载，优先使用可复用的 `NewStringLoader` 或 `NewMemoryLoader`。
 
 ## 运行期更新
 
 `AddWord`、`AddWords`、`RemoveWord`、`RemoveWords`、`Clear` 都会自动重建匹配器，适合运行过程中小范围增删词。
 这些操作可以和 `FindAll`、`Find`、`Contains`、`Replace` 并发调用；更新成功后新匹配器会一次性发布。
+重建成本和当前词表大小相关；高频更新时建议批量调用 `AddWords`/`RemoveWords`，或使用 `ReplaceWords` 整表发布，避免逐条更新大词表。
 
 ```go
 _ = eng.AddWord(swd.Word{Text: "新增词", Type: "custom"})
@@ -107,7 +110,13 @@ _ = words
 _ = eng.ExportFile(context.Background(), "words.txt")
 ```
 
-导出格式和加载格式一致：无类型写成 `词`，有类型写成 `词,类型`。`ExportFile` 会覆盖目标文件。当前简易格式不支持词或类型中包含逗号、回车或换行；遇到这类词条时导出会返回错误。
+导出格式和加载格式一致：无类型写成 `词`，有类型写成 `词,类型`。`ExportFile` 会覆盖目标文件，并在写入前完成格式校验；如果校验或写入失败，已有目标文件会保持不变。当前简易格式不支持词或类型中包含逗号、回车或换行；遇到这类词条时导出会返回错误。
+
+## 边界说明
+
+`IgnoreSymbol` 会在 `SimilarChar` 之前过滤符号。两者同时启用时，`b@d` 中的 `@` 会先被当作符号忽略，不会再被映射为 `a`；如果需要 `@` 参与混淆匹配，请只开启 `SimilarChar`，或不要把相关字符归类为可忽略符号。
+
+这个库只做确定性的敏感词匹配和低误报归一化，不做语义审核、拼音、同音字或模型推断类检测。
 
 ## 匹配策略
 

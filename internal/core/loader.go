@@ -57,6 +57,18 @@ func (l readerLoader) Load(ctx context.Context) ([]Word, error) {
 	return loadWordsFromReader(ctx, l.r)
 }
 
+type stringLoader struct {
+	text string
+}
+
+func NewStringLoader(text string) Loader {
+	return stringLoader{text: text}
+}
+
+func (l stringLoader) Load(ctx context.Context) ([]Word, error) {
+	return loadWordsFromReader(ctx, strings.NewReader(l.text))
+}
+
 func loadWordsFromReader(ctx context.Context, r io.Reader) ([]Word, error) {
 	s := bufio.NewScanner(r)
 	s.Buffer(make([]byte, 0, 64*1024), maxLoaderLineBytes)

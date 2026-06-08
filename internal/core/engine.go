@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 )
@@ -76,31 +77,47 @@ func (e *Engine) Export(ctx context.Context, w io.Writer) error {
 		return fmt.Errorf("writer is nil")
 	}
 	words := e.Words()
-	for _, word := range words {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if err := validateExportWord(word); err != nil {
-			return err
-		}
-		line := word.Text
-		if word.Type != "" {
-			line += "," + word.Type
-		}
-		if _, err := io.WriteString(w, line+"\n"); err != nil {
-			return err
-		}
+	if err := validateExportWords(words); err != nil {
+		return err
 	}
-	return ctx.Err()
+	return exportWords(ctx, words, w)
 }
 
 func (e *Engine) ExportFile(ctx context.Context, path string) error {
-	f, err := os.Create(path)
+	words := e.Words()
+	if err := validateExportWords(words); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	dir := filepath.Dir(path)
+	f, err := os.CreateTemp(dir, ".swd-export-*")
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-	return e.Export(ctx, f)
+	tmpPath := f.Name()
+	removeTmp := true
+	defer func() {
+		if removeTmp {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+
+	err = exportWords(ctx, words, f)
+	closeErr := f.Close()
+	if err != nil {
+		return err
+	}
+	if closeErr != nil {
+		return closeErr
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return err
+	}
+	removeTmp = false
+	return nil
 }
 
 func (e *Engine) RemoveWord(text string) error {
@@ -219,12 +236,30 @@ func appendOrOverrideWords(base, updates []Word) []Word {
 	return next
 }
 
-func validateExportWord(w Word) error {
-	if strings.ContainsAny(w.Text, ",\r\n") {
-		return fmt.Errorf("word %q cannot be exported in simple format", w.Text)
+func exportWords(ctx context.Context, words []Word, w io.Writer) error {
+	for _, word := range words {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		line := word.Text
+		if word.Type != "" {
+			line += "," + word.Type
+		}
+		if _, err := io.WriteString(w, line+"\n"); err != nil {
+			return err
+		}
 	}
-	if strings.ContainsAny(w.Type, ",\r\n") {
-		return fmt.Errorf("word type %q cannot be exported in simple format", w.Type)
+	return ctx.Err()
+}
+
+func validateExportWords(words []Word) error {
+	for _, w := range words {
+		if strings.ContainsAny(w.Text, ",\r\n") {
+			return fmt.Errorf("word %q cannot be exported in simple format", w.Text)
+		}
+		if strings.ContainsAny(w.Type, ",\r\n") {
+			return fmt.Errorf("word type %q cannot be exported in simple format", w.Type)
+		}
 	}
 	return nil
 }
