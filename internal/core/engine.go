@@ -197,7 +197,10 @@ func (e *Engine) replaceWords(words []Word) error {
 	if err := validateWords(words); err != nil {
 		return err
 	}
-	next := append([]Word(nil), words...)
+	next, err := e.filterMatchableWords(words)
+	if err != nil {
+		return err
+	}
 	m, err := newMatcher(e.cfg, next)
 	if err != nil {
 		return err
@@ -208,6 +211,21 @@ func (e *Engine) replaceWords(words []Word) error {
 	e.m = m
 	e.mu.Unlock()
 	return nil
+}
+
+func (e *Engine) filterMatchableWords(words []Word) ([]Word, error) {
+	normalizer, err := newNormalizer(e.cfg)
+	if err != nil {
+		return nil, err
+	}
+	next := make([]Word, 0, len(words))
+	for _, w := range words {
+		if normalizer.normalize(w.Text).text == "" {
+			continue
+		}
+		next = append(next, w)
+	}
+	return next, nil
 }
 
 func validateWords(words []Word) error {

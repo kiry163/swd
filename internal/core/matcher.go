@@ -1,7 +1,6 @@
 package core
 
 import (
-	"fmt"
 	"sort"
 	"strings"
 
@@ -29,9 +28,6 @@ func newMatcher(cfg Config, words []Word) (*matcher, error) {
 	keys := make([]string, 0, len(words))
 	for _, w := range words {
 		k := normalizer.normalize(w.Text).text
-		if k == "" {
-			return nil, fmt.Errorf("word %q normalizes to empty", w.Text)
-		}
 		patterns = append(patterns, pattern{word: w, key: k})
 		keys = append(keys, k)
 	}

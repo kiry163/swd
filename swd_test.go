@@ -494,15 +494,38 @@ func TestEngine_Export_ErrorsWhenWordCannotUseSimpleFormat(t *testing.T) {
 	}
 }
 
-func TestEngine_AddWord_ErrorsWhenWordNormalizesToEmpty(t *testing.T) {
+func TestEngine_AddWord_SkipsWordThatNormalizesToEmpty(t *testing.T) {
 	eng := New(Options{IgnoreSymbol: true})
 
 	err := eng.AddWord(Word{Text: "!!!", Type: "symbol"})
-	if err == nil {
-		t.Fatal("AddWord() error = nil, want error")
+	if err != nil {
+		t.Fatalf("AddWord() error = %v, want nil", err)
 	}
-	if !strings.Contains(err.Error(), "normalizes to empty") {
-		t.Fatalf("AddWord() error = %q, want normalizes to empty", err.Error())
+	if got := eng.Words(); len(got) != 0 {
+		t.Fatalf("Words() = %#v, want empty", got)
+	}
+	if eng.Contains("!!!") {
+		t.Fatal("Contains(!!!) = true, want false")
+	}
+}
+
+func TestEngine_Load_SkipsWordsThatNormalizeToEmpty(t *testing.T) {
+	eng := New(Options{IgnoreSymbol: true})
+
+	err := eng.Load(context.Background(), NewMemoryLoader([]Word{
+		{Text: "&", Type: "symbol"},
+		{Text: "敏感词", Type: "custom"},
+	}))
+	if err != nil {
+		t.Fatalf("Load() error = %v, want nil", err)
+	}
+
+	want := []Word{{Text: "敏感词", Type: "custom"}}
+	if got := eng.Words(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("Words() = %#v, want %#v", got, want)
+	}
+	if !eng.Contains("敏@感@词") {
+		t.Fatal("Contains(valid word) = false, want true")
 	}
 }
 
