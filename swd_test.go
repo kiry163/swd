@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -291,6 +292,176 @@ func TestEngine_Clear_RebuildsEmptyMatcher(t *testing.T) {
 
 	if eng.Contains("这里有敏感内容") {
 		t.Fatal("Contains() = true after Clear, want false")
+	}
+}
+
+func TestEngine_ReplaceWords_AtomicallyReplacesWords(t *testing.T) {
+	eng := New(Options{})
+	if err := eng.AddWord(Word{Text: "旧词", Type: "old"}); err != nil {
+		t.Fatalf("AddWord() error = %v", err)
+	}
+
+	if err := eng.ReplaceWords([]Word{{Text: "新词", Type: "new"}}); err != nil {
+		t.Fatalf("ReplaceWords() error = %v", err)
+	}
+
+	if eng.Contains("这里有旧词") {
+		t.Fatal("Contains(old word) = true after ReplaceWords, want false")
+	}
+	matches := eng.FindAll("这里有新词")
+	if len(matches) != 1 {
+		t.Fatalf("FindAll(new word) len = %d, want 1", len(matches))
+	}
+	if matches[0].Type != "new" {
+		t.Fatalf("Type = %q, want new", matches[0].Type)
+	}
+}
+
+func TestEngine_ReplaceWords_ErrorKeepsExistingWords(t *testing.T) {
+	eng := New(Options{})
+	if err := eng.AddWord(Word{Text: "旧词", Type: "old"}); err != nil {
+		t.Fatalf("AddWord() error = %v", err)
+	}
+
+	err := eng.ReplaceWords([]Word{{Text: "新词", Type: "new"}, {Text: " ", Type: "bad"}})
+	if err == nil {
+		t.Fatal("ReplaceWords() error = nil, want error")
+	}
+
+	if !eng.Contains("这里有旧词") {
+		t.Fatal("Contains(old word) = false after failed ReplaceWords, want true")
+	}
+	if eng.Contains("这里有新词") {
+		t.Fatal("Contains(new word) = true after failed ReplaceWords, want false")
+	}
+}
+
+func TestEngine_ReplaceWords_OverridesDuplicateWordsByText(t *testing.T) {
+	eng := New(Options{})
+
+	if err := eng.ReplaceWords([]Word{
+		{Text: "重复", Type: "old"},
+		{Text: "其他", Type: "keep"},
+		{Text: "重复", Type: "new"},
+	}); err != nil {
+		t.Fatalf("ReplaceWords() error = %v", err)
+	}
+
+	want := []Word{
+		{Text: "重复", Type: "new"},
+		{Text: "其他", Type: "keep"},
+	}
+	if got := eng.Words(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("Words() = %#v, want %#v", got, want)
+	}
+
+	matches := eng.FindAll("这里有重复")
+	if len(matches) != 1 {
+		t.Fatalf("FindAll() len = %d, want 1", len(matches))
+	}
+	if matches[0].Type != "new" {
+		t.Fatalf("Type = %q, want new", matches[0].Type)
+	}
+}
+
+func TestEngine_Words_ReturnsCurrentWordsSnapshot(t *testing.T) {
+	eng := New(Options{})
+	if err := eng.AddWords([]Word{
+		{Text: "诈骗", Type: "risk"},
+		{Text: "赌博", Type: "risk"},
+	}); err != nil {
+		t.Fatalf("AddWords() error = %v", err)
+	}
+
+	got := eng.Words()
+	want := []Word{
+		{Text: "诈骗", Type: "risk"},
+		{Text: "赌博", Type: "risk"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Words() = %#v, want %#v", got, want)
+	}
+
+	got[0] = Word{Text: "篡改", Type: "changed"}
+	if eng.Contains("这里有篡改") {
+		t.Fatal("Words() returned mutable internal storage")
+	}
+	if !eng.Contains("这里有诈骗") {
+		t.Fatal("Contains(original word) = false after mutating snapshot, want true")
+	}
+}
+
+func TestEngine_Export_WritesWordsWithTypes(t *testing.T) {
+	eng := New(Options{})
+	if err := eng.AddWords([]Word{
+		{Text: "诈骗", Type: "risk"},
+		{Text: "敏感词"},
+		{Text: "违规", Type: "policy"},
+	}); err != nil {
+		t.Fatalf("AddWords() error = %v", err)
+	}
+
+	var out strings.Builder
+	if err := eng.Export(context.Background(), &out); err != nil {
+		t.Fatalf("Export() error = %v", err)
+	}
+
+	want := "诈骗,risk\n敏感词\n违规,policy\n"
+	if out.String() != want {
+		t.Fatalf("Export() = %q, want %q", out.String(), want)
+	}
+}
+
+func TestEngine_ExportFile_WritesLoadableFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "words.txt")
+
+	eng := New(Options{})
+	if err := eng.AddWords([]Word{
+		{Text: "诈骗", Type: "risk"},
+		{Text: "违规", Type: "policy"},
+	}); err != nil {
+		t.Fatalf("AddWords() error = %v", err)
+	}
+
+	if err := eng.ExportFile(context.Background(), path); err != nil {
+		t.Fatalf("ExportFile() error = %v", err)
+	}
+
+	loaded := New(Options{})
+	if err := loaded.Load(context.Background(), NewFileLoader(path)); err != nil {
+		t.Fatalf("Load(exported file) error = %v", err)
+	}
+	if !reflect.DeepEqual(loaded.Words(), eng.Words()) {
+		t.Fatalf("loaded Words() = %#v, want %#v", loaded.Words(), eng.Words())
+	}
+}
+
+func TestEngine_Export_ErrorsWhenWordCannotUseSimpleFormat(t *testing.T) {
+	eng := New(Options{})
+	if err := eng.AddWord(Word{Text: "坏,词", Type: "risk"}); err != nil {
+		t.Fatalf("AddWord() error = %v", err)
+	}
+
+	var out strings.Builder
+	err := eng.Export(context.Background(), &out)
+	if err == nil {
+		t.Fatal("Export() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "cannot be exported") {
+		t.Fatalf("Export() error = %q, want cannot be exported", err.Error())
+	}
+}
+
+func TestEngine_AddWord_ErrorsWhenWordNormalizesToEmpty(t *testing.T) {
+	eng := New(Options{IgnoreSymbol: true})
+
+	err := eng.AddWord(Word{Text: "!!!", Type: "symbol"})
+	if err == nil {
+		t.Fatal("AddWord() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "normalizes to empty") {
+		t.Fatalf("AddWord() error = %q, want normalizes to empty", err.Error())
 	}
 }
 

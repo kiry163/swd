@@ -34,6 +34,22 @@ func TestReaderLoader_LoadsWordsAndSkipsComments(t *testing.T) {
 	}
 }
 
+func TestReaderLoader_StripsUTF8BOMFromFirstWord(t *testing.T) {
+	loader := NewReaderLoader(strings.NewReader("\ufeff诈骗,risk\n赌博,risk\n"))
+
+	words, err := loader.Load(context.Background())
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if len(words) != 2 {
+		t.Fatalf("len(words) = %d, want 2: %#v", len(words), words)
+	}
+	if words[0].Text != "诈骗" || words[0].Type != "risk" {
+		t.Fatalf("words[0] = %#v, want 诈骗/risk", words[0])
+	}
+}
+
 func TestReaderLoader_ReturnsLineNumberForEmptyWord(t *testing.T) {
 	loader := NewReaderLoader(strings.NewReader("正常,ok\n ,bad\n"))
 

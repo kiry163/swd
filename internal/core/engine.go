@@ -3,6 +3,8 @@ package core
 import (
 	"context"
 	"fmt"
+	"io"
+	"os"
 	"strings"
 	"sync"
 )
@@ -55,6 +57,50 @@ func (e *Engine) Load(ctx context.Context, loaders ...Loader) error {
 		loaded = append(loaded, words...)
 	}
 	return e.AddWords(loaded)
+}
+
+func (e *Engine) ReplaceWords(words []Word) error {
+	e.writeMu.Lock()
+	defer e.writeMu.Unlock()
+	return e.replaceWords(appendOrOverrideWords(nil, words))
+}
+
+func (e *Engine) Words() []Word {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return append([]Word(nil), e.words...)
+}
+
+func (e *Engine) Export(ctx context.Context, w io.Writer) error {
+	if w == nil {
+		return fmt.Errorf("writer is nil")
+	}
+	words := e.Words()
+	for _, word := range words {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := validateExportWord(word); err != nil {
+			return err
+		}
+		line := word.Text
+		if word.Type != "" {
+			line += "," + word.Type
+		}
+		if _, err := io.WriteString(w, line+"\n"); err != nil {
+			return err
+		}
+	}
+	return ctx.Err()
+}
+
+func (e *Engine) ExportFile(ctx context.Context, path string) error {
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return e.Export(ctx, f)
 }
 
 func (e *Engine) RemoveWord(text string) error {
@@ -171,4 +217,14 @@ func appendOrOverrideWords(base, updates []Word) []Word {
 		next = append(next, w)
 	}
 	return next
+}
+
+func validateExportWord(w Word) error {
+	if strings.ContainsAny(w.Text, ",\r\n") {
+		return fmt.Errorf("word %q cannot be exported in simple format", w.Text)
+	}
+	if strings.ContainsAny(w.Type, ",\r\n") {
+		return fmt.Errorf("word type %q cannot be exported in simple format", w.Type)
+	}
+	return nil
 }

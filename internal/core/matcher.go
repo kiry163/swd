@@ -1,6 +1,7 @@
 package core
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 
@@ -29,7 +30,7 @@ func newMatcher(cfg Config, words []Word) (*matcher, error) {
 	for _, w := range words {
 		k := normalizer.normalize(w.Text).text
 		if k == "" {
-			continue
+			return nil, fmt.Errorf("word %q normalizes to empty", w.Text)
 		}
 		patterns = append(patterns, pattern{word: w, key: k})
 		keys = append(keys, k)
@@ -77,11 +78,11 @@ func (m *matcher) findAll(text string) []Match {
 }
 
 func (m *matcher) contains(text string) bool {
-	normalized := m.normalizer.normalize(text)
-	if normalized.text == "" {
+	normalized := m.normalizer.normalizeTextOnly(text)
+	if normalized == "" {
 		return false
 	}
-	return len(m.ac.FindAll(normalized.text)) > 0
+	return m.ac.Iter(normalized).Next() != nil
 }
 
 func (m *matcher) replace(text, mask string) string {

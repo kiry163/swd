@@ -68,6 +68,9 @@ func loadWordsFromReader(ctx context.Context, r io.Reader) ([]Word, error) {
 			return nil, err
 		}
 		line := strings.TrimSpace(s.Text())
+		if lineNo == 1 {
+			line = strings.TrimPrefix(line, "\ufeff")
+		}
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}

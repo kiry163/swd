@@ -88,12 +88,26 @@ _ = eng.RemoveWord("旧词")
 _ = eng.Clear()
 ```
 
-如果需要整表替换，可以显式组合：
+如果需要整表替换，使用 `ReplaceWords`。它会先完整校验并构建新匹配器，成功后再一次性发布；如果失败，旧词表会继续生效。
 
 ```go
-_ = eng.Clear()
-_ = eng.Load(context.Background(), swd.NewMemoryLoader(newWords))
+_ = eng.ReplaceWords(newWords)
 ```
+
+启用归一化选项后，如果某个词归一化后变为空字符串，例如开启 `IgnoreSymbol` 后加载纯符号词，加载和更新会返回错误，避免词条静默失效。
+
+## 导出词表
+
+`Words` 会返回当前词表快照；`Export` 和 `ExportFile` 可以把当前词表导出成 loader 可再次读取的简易格式：
+
+```go
+words := eng.Words()
+_ = words
+
+_ = eng.ExportFile(context.Background(), "words.txt")
+```
+
+导出格式和加载格式一致：无类型写成 `词`，有类型写成 `词,类型`。`ExportFile` 会覆盖目标文件。当前简易格式不支持词或类型中包含逗号、回车或换行；遇到这类词条时导出会返回错误。
 
 ## 匹配策略
 
@@ -102,7 +116,7 @@ _ = eng.Load(context.Background(), swd.NewMemoryLoader(newWords))
 - 按原文位置从左到右返回。
 - 同起点命中多个词时保留最长词。
 - 被已选中长词覆盖的短词不会返回。
-- 相同 `Text` 的词条后添加会覆盖先添加的 `Type`。
+- `Load`、`AddWords`、`ReplaceWords` 遇到相同 `Text` 的词条时，后出现的词条会覆盖先出现的 `Type`，并保留第一次出现的位置。
 
 ## 性能基准
 

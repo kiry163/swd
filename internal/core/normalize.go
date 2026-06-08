@@ -96,6 +96,31 @@ func (n normalizer) normalize(text string) normalizedText {
 	return normalizedText{text: b.String(), mapping: mapping}
 }
 
+func (n normalizer) normalizeTextOnly(text string) string {
+	var b strings.Builder
+	if n.traditional == nil && !n.cfg.IgnoreWidth {
+		for _, r := range text {
+			n.appendNormalizedRuneTextOnly(&b, r)
+		}
+		return b.String()
+	}
+
+	runes := make([]mappedRune, 0, len(text))
+	for i, r := range []rune(text) {
+		runes = append(runes, mappedRune{r: r, index: i})
+	}
+	if n.traditional != nil {
+		runes = n.convertTraditional(runes)
+	}
+	if n.cfg.IgnoreWidth {
+		runes = n.foldWidth(runes)
+	}
+	for _, mr := range runes {
+		n.appendNormalizedRuneTextOnly(&b, mr.r)
+	}
+	return b.String()
+}
+
 func (n normalizer) appendNormalizedRune(b *strings.Builder, mapping *[]int, r rune, index int) {
 	if n.cfg.IgnoreSymbol && isSymbolRune(r) {
 		return
@@ -105,6 +130,17 @@ func (n normalizer) appendNormalizedRune(b *strings.Builder, mapping *[]int, r r
 		return
 	}
 	appendMappedRune(b, mapping, r, index)
+}
+
+func (n normalizer) appendNormalizedRuneTextOnly(b *strings.Builder, r rune) {
+	if n.cfg.IgnoreSymbol && isSymbolRune(r) {
+		return
+	}
+	r = n.normalizeRune(r)
+	if r == 0 {
+		return
+	}
+	b.WriteRune(r)
 }
 
 func (n normalizer) normalizeRune(r rune) rune {
